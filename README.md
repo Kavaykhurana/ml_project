@@ -26,7 +26,7 @@ To stop the app, interrupt the last cell (■ button). Everything runs locally. 
 
 - **What:** a Google Gemini API key. It's free from [Google AI Studio](https://aistudio.google.com/apikey).
 - **Why:** in Ask Gemini mode, Gemini *generates* the answer and the trained model *checks* it for hallucinations.
-- **Where:** paste it into the password field in the app, or set it before launching with `export GEMINI_API_KEY=...`. It's never written to disk, the database or git.
+- **Where:** put it in `.streamlit/secrets.toml` as `GEMINI_API_KEY = "..."`. That file is git-ignored, so the key never reaches GitHub. You can also set the `GEMINI_API_KEY` environment variable instead. With neither set, the app shows a password field.
 
 Everything else works without a key.
 

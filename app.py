@@ -79,6 +79,14 @@ def clear_inputs():
 
 
 
+
+def gemini_key():
+    """Key from .streamlit/secrets.toml (git-ignored) or the GEMINI_API_KEY env var."""
+    try:
+        return st.secrets.get("GEMINI_API_KEY") or os.environ.get("GEMINI_API_KEY")
+    except FileNotFoundError:  # no secrets.toml
+        return os.environ.get("GEMINI_API_KEY")
+
 def load_gemini_example():
     st.session_state.g_q = "Tell me about the Eiffel Tower."
     st.session_state.g_ctx = EIFFEL
@@ -137,7 +145,7 @@ with tab_detect:
                     "and watch those sentences get flagged.")
         st.button("Load example", icon=":material/lightbulb:", on_click=load_gemini_example)
         with st.form("gemini"):
-            api_key = os.environ.get("GEMINI_API_KEY") or st.text_input(
+            api_key = gemini_key() or st.text_input(
                 "Gemini API key", type="password",
                 help="Free key from https://aistudio.google.com/apikey. Only sent to Google for this request, never saved.")
             c1, c2 = st.columns(2)
