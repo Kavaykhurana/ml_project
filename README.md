@@ -4,33 +4,33 @@ This project detects hallucinations in RAG (retrieval-augmented generation) answ
 
 It's trained on [RAGTruth](https://github.com/ParticleMedia/RAGTruth) (MIT licence), which has 17,790 responses from 6 LLMs across QA, Summary and Data-to-text tasks. Humans annotated the hallucinated character spans.
 
-## Quick start
+## Quick start (2 steps)
+
+> **You need your own Gemini API key.** Each person who uses this project must use their own key; this project doesn't include one. Get a free key at **https://aistudio.google.com/apikey**. It's only needed for the *Ask Gemini* mode; everything else works without it.
+
+**1. Open the notebook and click Run → Run All**
 
 ```bash
-pip install jupyter          # if you don't have it
+pip install jupyter          # only if you don't have Jupyter yet
 jupyter notebook RAGTruth_Hallucination_Detector.ipynb
 ```
 
-Then click **Run → Run All**. The notebook will:
+**2. Paste your Gemini API key when the notebook asks (step 2 of the notebook) and press Enter**
 
-1. install the requirements
-2. download the dataset (~36 MB) and load it into a SQLite database (`ragtruth.db`)
-3. run the EDA charts
-4. build the features
-5. train and compare 3 models (about 10 seconds)
-6. launch the Streamlit app at **http://localhost:8501**, which opens in your browser
+That's all. The rest runs by itself and the app opens in your browser at **http://localhost:8501**.
 
-The app opens on port 8501, or on the next free port if 8501 is already taken. To stop it, interrupt the last cell (■ button). Everything runs locally. The only optional online part is the **Ask Gemini** mode.
+**Where your key goes:** the notebook saves it to `.streamlit/secrets.toml` in the project folder, as `GEMINI_API_KEY = "your-key"`. It's asked only once. To change the key, edit that file; to remove it, delete the file. The file stays on your computer: git ignores it, and the shared zip doesn't include it. If you skip the prompt, you can also paste a key straight into the app's *Ask Gemini* screen.
 
-### Optional: Gemini API key (only for the "Ask Gemini" mode)
+What Run All does, in order:
 
-- **What:** a Google Gemini API key. It's free from [Google AI Studio](https://aistudio.google.com/apikey).
-- **Why:** in Ask Gemini mode, Gemini *generates* the answer and the trained model *checks* it for hallucinations.
-- **Where:** put it in `.streamlit/secrets.toml` as `GEMINI_API_KEY = "..."`. That file is git-ignored, so the key never reaches GitHub. You can also set the `GEMINI_API_KEY` environment variable instead. With neither set, the app shows a password field.
+1. installs the requirements
+2. asks for your Gemini API key (once)
+3. downloads the dataset (~36 MB) and loads it into a SQLite database (`ragtruth.db`)
+4. runs the EDA charts and builds the features
+5. trains and compares 3 models (about 10 seconds)
+6. launches the Streamlit app at **http://localhost:8501**, or the next free port, and opens it in your browser
 
-Everything else works without a key.
-
-You can also run the app on its own once the notebook has trained the model: `streamlit run app.py`
+To stop the app, interrupt the last cell (■ button). Everything runs locally except the *Ask Gemini* calls to Google.
 
 ## Files
 
@@ -114,7 +114,7 @@ Don't zip the folder by hand. `.streamlit/secrets.toml` holds the Gemini API key
 git archive -o ragtruth-share.zip HEAD
 ```
 
-It contains only the code, the notebook and the README. There's no key and no data. Your friend runs the notebook, which downloads the data and trains the model. For **Ask Gemini**, they paste their own free key into the app or create their own `.streamlit/secrets.toml`.
+It contains only the code, the notebook and the README. There's no key and no data. Your friend follows the 2-step quick start: Run All, then paste **their own** Gemini key when asked.
 
 ## Demo script (about 5 minutes)
 
