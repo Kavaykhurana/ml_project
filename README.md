@@ -48,7 +48,7 @@ SQLite: sources ─< responses           (+ runs, predictions)
 split each response into sentences → label 1 if it overlaps a gold span
         │  sentence_features(): compare sentence vs context
         ▼
-LogReg / RandomForest / GradientBoosting → threshold tuned on dev → best saved
+LogReg / RandomForest / GradientBoosting → threshold + model picked on dev → best saved
         │
         ▼
 detect(context, response) → per-sentence probability, flagged sentences, risk score = max prob
@@ -71,8 +71,10 @@ detect(context, response) → per-sentence probability, flagged sentences, risk 
 | Model | Sentence F1 | Sentence AUC | Response F1 | Response AUC |
 |---|---|---|---|---|
 | Logistic Regression | 0.300 | 0.770 | 0.646 | 0.782 |
-| Random Forest | 0.326 | 0.785 | 0.645 | 0.794 |
-| **Gradient Boosting** (chosen) | **0.339** | **0.797** | **0.666** | **0.802** |
+| Random Forest | 0.337 | 0.784 | 0.652 | 0.795 |
+| **Gradient Boosting** (chosen) | 0.331 | **0.796** | 0.651 | **0.802** |
+
+The model is picked by F1 on the **dev** split, and its threshold is tuned there too. The test split is only used for reporting, so it never influences any choice. Gradient Boosting had the best dev F1 (0.387).
 
 *Response level* means an answer counts as hallucinated if any of its sentences is flagged. Sentence-level F1 is low because only 8% of test sentences are hallucinated and the features are lexical. Response-level detection, the "should I trust this answer?" question, is the practical use.
 
@@ -87,10 +89,21 @@ detect(context, response) → per-sentence probability, flagged sentences, risk 
 
 ## The app
 
-- **Detector**: pick a RAGTruth test example or type your own. You see the prediction with highlighted sentences and underlined unsupported words, the human gold labels for comparison and a per-sentence probability table.
+- **Detector** has 2 input modes:
+  - **Write my own** (default): type any context and any response, then click Detect. Four demo scenarios (invented fact, wrong numbers, fully grounded, made-up news claim) fill the boxes so you can start from one and edit it. **Clear** empties both boxes.
+  - **RAGTruth test example**: browse real test answers and compare the prediction with the human gold labels.
 - **Dataset**: stats and charts queried live from SQLite, plus a table browser.
 - **Model Performance**: all 3 models compared at sentence and response level.
 - **History**: every detection logged in the `predictions` table.
+
+## Demo script (about 5 minutes)
+
+1. **Run All** in the notebook. Walk through the EDA charts, the feature table (hallucinated sentences have more novel words and less n-gram overlap) and the model comparison.
+2. In the app, **Write my own** → load **Invented fact** → Detect. The second sentence is red and "Leonardo da Vinci" is underlined because it isn't in the context.
+3. Load **Fully grounded** → Detect. It comes out "Looks grounded".
+4. Let the teacher type their own: a short paragraph of facts as context, and an answer that repeats some facts and adds one new name, number or claim.
+5. **RAGTruth test example** → compare the model's red sentences with the yellow human labels.
+6. **Model Performance** and **History** tabs: metrics and every detection you ran, read from SQLite.
 
 ## Testing
 

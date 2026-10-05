@@ -106,7 +106,8 @@ def load_dataset():
 
 # ---------- features ----------
 
-WORD = re.compile(r"[A-Za-z0-9][A-Za-z0-9'\-\.]*[A-Za-z0-9]|[A-Za-z0-9]")
+# a dot stays inside a token only before a digit (94.9), so "tall.and" splits into two words
+WORD = re.compile(r"[A-Za-z0-9]+(?:(?:['\-]|\.(?=\d))[A-Za-z0-9]+)*")
 
 
 def norm(w):
@@ -191,20 +192,23 @@ def best_threshold(y, prob):
 
 
 def train(sent):
-    """Train every candidate, tune threshold on dev, report test metrics, save the best model + log runs to DB."""
+    """Train every candidate, tune threshold + pick the best on dev, report test metrics, save it + log runs to DB."""
     tr, dev, te = (sent[sent.split == s] for s in ("train", "dev", "test"))
     results, best = [], None
     for name, make in CANDIDATES.items():
         clf = make().fit(tr[FEATURES], tr.label)
-        thr = best_threshold(dev.label, clf.predict_proba(dev[FEATURES])[:, 1])
+        dev_prob = clf.predict_proba(dev[FEATURES])[:, 1]
+        thr = best_threshold(dev.label, dev_prob)
+        dev_f1 = f1_score(dev.label, dev_prob >= thr)
         prob = clf.predict_proba(te[FEATURES])[:, 1]
         m = metrics(te.label, prob, thr)
         # response level: a response is hallucinated if any of its sentences is
         resp = te.assign(prob=prob).groupby("response_id").agg(y=("label", "max"), p=("prob", "max"))
-        results.append({"model": name, "threshold": thr, **m,
+        results.append({"model": name, "threshold": thr, "dev_f1": dev_f1, **m,
                         **{"resp_" + k: v for k, v in metrics(resp.y, resp.p, thr).items()}})
-        if best is None or m["f1"] > best[2]["f1"]:
-            best = (name, clf, m, thr)
+        # model selection on dev only; the test split is just for reporting
+        if best is None or dev_f1 > best[2]:
+            best = (name, clf, dev_f1, thr)
     name, clf, _, thr = best
     joblib.dump({"name": name, "model": clf, "threshold": thr}, MODEL_PATH)
     now = datetime.now().isoformat(timespec="seconds")
@@ -258,4 +262,5 @@ if __name__ == "__main__":
     assert novel_words("The shop is at 999 Oak Street.", idx) == ["999", "Oak"]
     f = dict(zip(FEATURES, sentence_features("The shop is at 999 Oak Street.", idx, 0, 1)))
     assert f["novel_numbers"] == 1 and f["novel_capitals"] == 1
+    assert WORD.findall("tall.and 94.9 o'clock") == ["tall", "and", "94.9", "o'clock"]
     print("backend self-check ok")
