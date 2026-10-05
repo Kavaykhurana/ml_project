@@ -121,4 +121,7 @@ The model is picked by F1 on the **dev** split, and its threshold is tuned there
 
 ## Limitations
 
+Response-level F1 on the test set differs a lot by task type: Data2txt 0.78, QA 0.51, Summary 0.41. On Data2txt the model flags almost everything (recall 0.99, precision 0.64). The context there is JSON, so any reworded field looks like new words.
+
+
 The features are lexical. A correct paraphrase can look "novel", and a contradiction that reuses context words (for example, swapped numbers) can look grounded. Next steps would be a transformer token classifier (ModernBERT or DeBERTa on `[context] [SEP] [response]`) for word-level spans, or an NLI entailment score added as a feature.

@@ -125,7 +125,8 @@ with tab_detect:
     if mode == "RAGTruth test example":
         ex = test_examples()
         c1, c2 = st.columns(2)
-        task = c1.selectbox("Task type", sorted(ex.task_type.unique()))
+        tasks = sorted(ex.task_type.unique())
+        task = c1.selectbox("Task type", tasks, index=tasks.index("QA"))  # QA first: the cleanest examples to demo
         only_h = c2.checkbox("Only examples with hallucinations", value=True)
         sub = ex[ex.task_type == task]
         if only_h:

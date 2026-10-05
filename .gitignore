@@ -5,3 +5,4 @@ __pycache__/
 .ipynb_checkpoints/
 .claude/
 .streamlit/secrets.toml
+.playwright-mcp/
