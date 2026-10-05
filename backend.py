@@ -7,6 +7,7 @@ import hashlib
 import json
 import re
 import sqlite3
+import urllib.error
 import urllib.request
 from datetime import datetime
 from pathlib import Path
@@ -254,6 +255,48 @@ def detect(context, response, log=True):
                          sum(o["flagged"] for o in out), verdict))
     return {"score": score, "verdict": verdict, "sentences": out, "model": bundle["name"], "threshold": bundle["threshold"]}
 
+
+
+# ---------- Gemini (generates the answer that the detector then checks) ----------
+
+GEMINI_MODELS = ["gemini-3.5-flash-lite", "gemini-3.8-flash"]
+GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent"
+PROMPTS = {
+    "strict": ("Briefly answer the following question:\n{q}\n"
+               "Bear in mind that your response should be strictly based on the following passages:\n{c}"),
+    # invites the model to go beyond the context, so the demo shows unsupported claims getting flagged
+    "loose": ("Answer the following question in 3-5 sentences:\n{q}\n"
+              "Here is some background:\n{c}\n"
+              "Also add interesting extra facts from your own knowledge (history, people, numbers) that are not in the background."),
+}
+
+
+def build_context(question, passages):
+    """Context the detector checks against: question + passages, like RAGTruth's QA prompts."""
+    return f"Question: {question}\nPassages:\n{passages}"
+
+
+def gemini_answer(question, passages, api_key, model=GEMINI_MODELS[0], style="strict"):
+    """Ask Gemini to answer from the passages. Raises RuntimeError with a readable message on failure."""
+    body = {"contents": [{"parts": [{"text": PROMPTS[style].format(q=question, c=passages)}]}],
+            "generationConfig": {"temperature": 0.7}}
+    req = urllib.request.Request(GEMINI_URL.format(model), data=json.dumps(body).encode(),
+                                 headers={"Content-Type": "application/json", "x-goog-api-key": api_key})
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            data = json.load(r)
+    except urllib.error.HTTPError as e:
+        try:
+            msg = json.load(e)["error"]["message"]
+        except Exception:
+            msg = e.reason
+        raise RuntimeError(f"Gemini error {e.code}: {msg}") from None
+    except urllib.error.URLError as e:
+        raise RuntimeError(f"Could not reach Gemini: {e.reason}") from None
+    try:
+        return "".join(p.get("text", "") for p in data["candidates"][0]["content"]["parts"]).strip()
+    except (KeyError, IndexError):
+        raise RuntimeError(f"Gemini returned no answer: {json.dumps(data)[:300]}") from None
 
 if __name__ == "__main__":
     # self-check on pure functions (no data needed)

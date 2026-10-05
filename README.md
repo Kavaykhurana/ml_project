@@ -20,7 +20,15 @@ Then click **Run → Run All**. The notebook will:
 5. train and compare 3 models (about 10 seconds)
 6. launch the Streamlit app at **http://localhost:8501**, which opens in your browser
 
-To stop the app, interrupt the last cell (■ button). Everything runs locally. There are no API keys and no cloud services.
+To stop the app, interrupt the last cell (■ button). Everything runs locally. The only optional online part is the **Ask Gemini** mode.
+
+### Optional: Gemini API key (only for the "Ask Gemini" mode)
+
+- **What:** a Google Gemini API key. It's free from [Google AI Studio](https://aistudio.google.com/apikey).
+- **Why:** in Ask Gemini mode, Gemini *generates* the answer and the trained model *checks* it for hallucinations.
+- **Where:** paste it into the password field in the app, or set it before launching with `export GEMINI_API_KEY=...`. It's never written to disk, the database or git.
+
+Everything else works without a key.
 
 You can also run the app on its own once the notebook has trained the model: `streamlit run app.py`
 
@@ -29,7 +37,7 @@ You can also run the app on its own once the notebook has trained the model: `st
 | File | What it is |
 |---|---|
 | `RAGTruth_Hallucination_Detector.ipynb` | Main notebook: run-all walkthrough + app launcher |
-| `backend.py` | Python backend: download, SQLite, features, training, inference |
+| `backend.py` | Python backend: download, SQLite, features, training, inference, Gemini call |
 | `app.py` | Streamlit frontend (4 tabs) |
 | `.streamlit/config.toml` | Light theme, binds to localhost only |
 | `requirements.txt` | Dependencies |
@@ -89,8 +97,9 @@ The model is picked by F1 on the **dev** split, and its threshold is tuned there
 
 ## The app
 
-- **Detector** has 2 input modes:
+- **Detector** has 3 input modes:
   - **Write my own** (default): type any context and any response, then click Detect. Four demo scenarios (invented fact, wrong numbers, fully grounded, made-up news claim) fill the boxes so you can start from one and edit it. **Clear** empties both boxes.
+  - **Ask Gemini**: type a question and passages. Gemini writes the answer and the detector checks it against the passages. *Strictly from passages* usually comes out grounded. *Add outside facts* asks Gemini to add facts from its own knowledge, and those sentences get flagged. The default model is `gemini-3.5-flash-lite`, and `gemini-3.8-flash` is selectable.
   - **RAGTruth test example**: browse real test answers and compare the prediction with the human gold labels.
 - **Dataset**: stats and charts queried live from SQLite, plus a table browser.
 - **Model Performance**: all 3 models compared at sentence and response level.
@@ -101,9 +110,10 @@ The model is picked by F1 on the **dev** split, and its threshold is tuned there
 1. **Run All** in the notebook. Walk through the EDA charts, the feature table (hallucinated sentences have more novel words and less n-gram overlap) and the model comparison.
 2. In the app, **Write my own** → load **Invented fact** → Detect. The second sentence is red and "Leonardo da Vinci" is underlined because it isn't in the context.
 3. Load **Fully grounded** → Detect. It comes out "Looks grounded".
-4. Let the teacher type their own: a short paragraph of facts as context, and an answer that repeats some facts and adds one new name, number or claim.
-5. **RAGTruth test example** → compare the model's red sentences with the yellow human labels.
-6. **Model Performance** and **History** tabs: metrics and every detection you ran, read from SQLite.
+4. **Ask Gemini** → Load example → *Strictly from passages* → it's grounded. Switch to *Add outside facts* → the extra facts get flagged.
+5. Let the teacher type their own: a short paragraph of facts as context, and an answer that repeats some facts and adds one new name, number or claim.
+6. **RAGTruth test example** → compare the model's red sentences with the yellow human labels.
+7. **Model Performance** and **History** tabs: metrics and every detection you ran, read from SQLite.
 
 ## Testing
 

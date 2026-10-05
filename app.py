@@ -1,6 +1,7 @@
 """Streamlit frontend. Run via the notebook, or: streamlit run app.py"""
 import html
 import json
+import os
 
 import pandas as pd
 import streamlit as st
@@ -77,6 +78,11 @@ def clear_inputs():
     st.session_state.scenario = None
 
 
+
+def load_gemini_example():
+    st.session_state.g_q = "Tell me about the Eiffel Tower."
+    st.session_state.g_ctx = EIFFEL
+
 def show_result(context, response, labels=None):
     """Render the last detection, but only if it belongs to the inputs currently on screen."""
     res = st.session_state.get("result")
@@ -107,7 +113,7 @@ def run_detection(context, response):
 
 
 with tab_detect:
-    mode = st.segmented_control("Input", ["Write my own", "RAGTruth test example"], default="Write my own", key="mode")
+    mode = st.segmented_control("Input", ["Write my own", "Ask Gemini", "RAGTruth test example"], default="Write my own", key="mode")
     if mode == "RAGTruth test example":
         ex = test_examples()
         c1, c2 = st.columns(2)
@@ -125,6 +131,39 @@ with tab_detect:
         if st.button("Detect hallucinations", type="primary", icon=":material/search:"):
             run_detection(row.context, row.response)
         show_result(row.context, row.response, json.loads(row.labels))
+    elif mode == "Ask Gemini":
+        st.markdown("**Gemini writes the answer** from your question and passages, then **the trained model checks it** "
+                    "against those passages. Choose *Add outside facts* to push Gemini beyond the passages "
+                    "and watch those sentences get flagged.")
+        st.button("Load example", icon=":material/lightbulb:", on_click=load_gemini_example)
+        with st.form("gemini"):
+            api_key = os.environ.get("GEMINI_API_KEY") or st.text_input(
+                "Gemini API key", type="password",
+                help="Free key from https://aistudio.google.com/apikey. Only sent to Google for this request, never saved.")
+            c1, c2 = st.columns(2)
+            model = c1.selectbox("Gemini model", b.GEMINI_MODELS)
+            style = c2.segmented_control("Answer style", ["Strictly from passages", "Add outside facts"],
+                                         default="Strictly from passages")
+            question = st.text_input("Question", key="g_q", placeholder="e.g. Tell me about the Eiffel Tower.")
+            passages = st.text_area("Passages (retrieved evidence)", key="g_ctx", height=160,
+                                    placeholder="e.g. The Eiffel Tower is in Paris. It was completed in 1889 and is 330 metres tall.")
+            go = st.form_submit_button("Generate answer and check it", type="primary", icon=":material/auto_awesome:")
+        if go:
+            if not (api_key and question.strip() and passages.strip()):
+                st.warning("Fill in the API key, the question and the passages.")
+            else:
+                with st.spinner("Gemini is writing the answer..."):
+                    try:
+                        answer = b.gemini_answer(question, passages, api_key, model,
+                                                 "loose" if style == "Add outside facts" else "strict")
+                    except RuntimeError as e:
+                        st.error(str(e))
+                    else:
+                        st.session_state.g_answer = (b.build_context(question, passages), answer)
+                        run_detection(*st.session_state.g_answer)
+        if "g_answer" in st.session_state:
+            st.caption("Gemini's answer, checked sentence by sentence:")
+            show_result(*st.session_state.g_answer)
     else:
         st.markdown("Type any **context** (the facts the LLM was given) and any **response** (the LLM's answer), "
                     "then click **Detect**. Need a quick start? Load a demo scenario and edit it.")
