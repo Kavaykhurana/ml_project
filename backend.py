@@ -10,6 +10,7 @@ import sqlite3
 import time
 import urllib.error
 import urllib.request
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
@@ -45,13 +46,21 @@ def download_data():
     for f in FILES:
         if not (DATA_DIR / f).exists():
             print("downloading", f)
-            urllib.request.urlretrieve(RAW_URL.format(f), DATA_DIR / f)
+            part = DATA_DIR / (f + ".part")  # rename only when complete, so an interrupted download is retried
+            urllib.request.urlretrieve(RAW_URL.format(f), part)
+            part.rename(DATA_DIR / f)
 
 
+@contextmanager
 def connect():
+    """SQLite connection that commits on success and is always closed."""
     con = sqlite3.connect(DB_PATH)
-    con.execute("PRAGMA foreign_keys = ON")
-    return con
+    try:
+        con.execute("PRAGMA foreign_keys = ON")
+        yield con
+        con.commit()
+    finally:
+        con.close()
 
 
 SCHEMA = """
@@ -73,21 +82,20 @@ CREATE TABLE IF NOT EXISTS predictions (
 def build_db():
     """Load both jsonl files into SQLite (idempotent)."""
     download_data()
-    con = connect()
-    con.executescript(SCHEMA)
-    if con.execute("SELECT COUNT(*) FROM responses").fetchone()[0] == 0:
-        with open(DATA_DIR / "source_info.jsonl") as f:
+    with connect() as con:
+        con.executescript(SCHEMA)
+        if con.execute("SELECT COUNT(*) FROM responses").fetchone()[0] > 0:
+            return
+        with open(DATA_DIR / "source_info.jsonl", encoding="utf-8") as f:
             src = [json.loads(l) for l in f]
         # the prompt holds the full retrieved context (passages / news / business JSON) for every task
         con.executemany("INSERT INTO sources VALUES (?,?,?)",
                         [(s["source_id"], s["task_type"], s["prompt"]) for s in src])
-        with open(DATA_DIR / "response.jsonl") as f:
+        with open(DATA_DIR / "response.jsonl", encoding="utf-8") as f:
             rows = [json.loads(l) for l in f]
         con.executemany("INSERT INTO responses VALUES (?,?,?,?,?,?,?,?)",
                         [(r["id"], r["source_id"], r["model"], r["split"], r["quality"], r["response"],
                           json.dumps(r["labels"]), int(bool(r["labels"]))) for r in rows])
-        con.commit()
-    con.close()
 
 
 def query(sql, params=()):
@@ -234,14 +242,16 @@ def train(sent):
 
 # ---------- inference ----------
 
-_model = None
+_model = (None, None)  # (file mtime, bundle)
 
 
 def load_model():
+    """Cached model bundle, reloaded whenever train() rewrites model.joblib."""
     global _model
-    if _model is None:
-        _model = joblib.load(MODEL_PATH)  # safe: model.joblib is produced locally by train(), never downloaded
-    return _model
+    mtime = MODEL_PATH.stat().st_mtime
+    if _model[0] != mtime:
+        _model = (mtime, joblib.load(MODEL_PATH))  # safe: model.joblib is produced locally by train(), never downloaded
+    return _model[1]
 
 
 def detect(context, response, log=True):
@@ -328,6 +338,8 @@ def gemini_generate(prompt, api_key, model=GEMINI_MODELS[0]):
                 if e.code not in RETRYABLE:  # e.g. 400 invalid key: retrying will not help
                     raise RuntimeError(last) from None
                 time.sleep(2 * (attempt + 1))
+            except TimeoutError:
+                last = f"Gemini timed out on {m}"
             except urllib.error.URLError as e:
                 raise RuntimeError(f"Could not reach Gemini (check your internet): {e.reason}") from None
     raise RuntimeError(last + " | All Gemini models are busy right now, try again in a minute.")
@@ -370,6 +382,14 @@ if __name__ == "__main__":
     def bad_key(prompt, key, model):
         calls.append(model)
         raise fake_http(400)
+    def slow(prompt, key, model):
+        calls.append(model)
+        if model == GEMINI_MODELS[0]:
+            raise TimeoutError
+        return "late"
+    calls.clear(); _call_gemini = slow
+    assert gemini_generate("p", "k") == ("late", GEMINI_MODELS[1])  # timeout counts as busy, then fallback
+
     calls.clear(); _call_gemini = bad_key
     try:
         gemini_generate("p", "k")

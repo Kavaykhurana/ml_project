@@ -20,7 +20,7 @@ Then click **Run → Run All**. The notebook will:
 5. train and compare 3 models (about 10 seconds)
 6. launch the Streamlit app at **http://localhost:8501**, which opens in your browser
 
-To stop the app, interrupt the last cell (■ button). Everything runs locally. The only optional online part is the **Ask Gemini** mode.
+The app opens on port 8501, or on the next free port if 8501 is already taken. To stop it, interrupt the last cell (■ button). Everything runs locally. The only optional online part is the **Ask Gemini** mode.
 
 ### Optional: Gemini API key (only for the "Ask Gemini" mode)
 
@@ -41,6 +41,7 @@ You can also run the app on its own once the notebook has trained the model: `st
 | `app.py` | Streamlit frontend (4 tabs) |
 | `.streamlit/config.toml` | Light theme, binds to localhost only |
 | `requirements.txt` | Dependencies |
+| `test_app.py` | End-to-end UI tests |
 
 Generated at runtime (git-ignored): `data/` (raw jsonl), `ragtruth.db`, `model.joblib`.
 
@@ -105,6 +106,16 @@ The model is picked by F1 on the **dev** split, and its threshold is tuned there
 - **Model Performance**: all 3 models compared at sentence and response level.
 - **History**: every detection logged in the `predictions` table.
 
+## Sharing the project (zip)
+
+Don't zip the folder by hand. `.streamlit/secrets.toml` holds the Gemini API key, and a hand-made zip would include it, along with the 36 MB dataset, the database and the trained model. Instead, share the clean archive made from git:
+
+```bash
+git archive -o ragtruth-share.zip HEAD
+```
+
+It contains only the code, the notebook and the README. There's no key and no data. Your friend runs the notebook, which downloads the data and trains the model. For **Ask Gemini**, they paste their own free key into the app or create their own `.streamlit/secrets.toml`.
+
 ## Demo script (about 5 minutes)
 
 1. **Run All** in the notebook. Walk through the EDA charts, the feature table (hallucinated sentences have more novel words and less n-gram overlap) and the model comparison.
@@ -117,11 +128,16 @@ The model is picked by F1 on the **dev** split, and its threshold is tuned there
 
 ## Testing
 
-`python backend.py` runs an assert-based self-check of sentence splitting and feature extraction.
+```bash
+python backend.py     # self-check: sentence splitting, features, Gemini retry/fallback (no data needed)
+python test_app.py    # 7 end-to-end UI tests (needs the notebook to have run once; Gemini is faked)
+```
+
+`test_app.py` drives the real Streamlit app headlessly. It covers your own input, all demo scenarios, Clear, text surviving a mode switch, Gemini with no passages, a bad key, RAGTruth examples, and HTML escaping. It writes to a temporary copy of the database, so your History stays clean.
 
 ## Limitations
 
-Response-level F1 on the test set differs a lot by task type: Data2txt 0.78, QA 0.51, Summary 0.41. On Data2txt the model flags almost everything (recall 0.99, precision 0.64). The context there is JSON, so any reworded field looks like new words.
+Response-level F1 on the test set differs a lot by task type: Data2txt 0.78, QA 0.53, Summary 0.39. On Data2txt the model flags almost everything (recall 0.98, precision 0.65). The context there is JSON, so any reworded field looks like new words.
 
 
 The features are lexical. A correct paraphrase can look "novel", and a contradiction that reuses context words (for example, swapped numbers) can look grounded. Next steps would be a transformer token classifier (ModernBERT or DeBERTa on `[context] [SEP] [response]`) for word-level spans, or an NLI entailment score added as a feature.

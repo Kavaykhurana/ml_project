@@ -18,13 +18,21 @@ def test_examples():
                       WHERE r.split='test' AND r.quality='good' ORDER BY CAST(r.id AS INTEGER)""")
 
 
+def underline_words(text, words):
+    """Escape text and underline whole-token matches only (no hits inside other words or HTML entities)."""
+    out, pos = [], 0
+    for m in b.WORD.finditer(text):
+        if m.group() in words:
+            out += [html.escape(text[pos:m.start()]), f"<u><b>{html.escape(m.group())}</b></u>"]
+            pos = m.end()
+    return "".join(out) + html.escape(text[pos:])
+
+
 def highlight(result):
     """Response HTML: flagged sentences shaded red, unsupported words underlined."""
     parts = []
     for s in result["sentences"]:
-        text = html.escape(s["text"])
-        for w in sorted(set(s["unsupported_words"]), key=len, reverse=True):
-            text = text.replace(html.escape(w), f"<u><b>{html.escape(w)}</b></u>")
+        text = underline_words(s["text"], set(s["unsupported_words"]))
         bg = f"rgba(220,38,38,{0.15 + 0.5 * s['prob']:.2f})" if s["flagged"] else "transparent"
         parts.append(f"<span title='p={s['prob']:.2f}' style='background:{bg};padding:2px;border-radius:4px'>{text}</span>")
     return "<div style='line-height:1.9;font-size:1.05rem'>" + " ".join(parts) + "</div>"
@@ -63,8 +71,9 @@ SCENARIOS = {
                                    "Tim Cook announced that the company will move its headquarters to Austin, Texas next year."),
 }
 
-for k in ("ctx", "resp"):
-    st.session_state.setdefault(k, "")
+# text inputs keep their value when the user switches input mode (Streamlit drops state of widgets not on screen)
+for k in ("ctx", "resp", "g_q", "g_ctx"):
+    st.session_state[k] = st.session_state.get(k, "")
 
 
 def load_scenario():
@@ -78,8 +87,6 @@ def clear_inputs():
     st.session_state.scenario = None
 
 
-
-
 def gemini_key():
     """Key from .streamlit/secrets.toml (git-ignored) or the GEMINI_API_KEY env var."""
     try:
@@ -87,9 +94,11 @@ def gemini_key():
     except FileNotFoundError:  # no secrets.toml
         return os.environ.get("GEMINI_API_KEY")
 
+
 def load_gemini_example():
     st.session_state.g_q = "Tell me about the Eiffel Tower."
     st.session_state.g_ctx = EIFFEL
+
 
 def show_result(context, response, labels=None):
     """Render the last detection, but only if it belongs to the inputs currently on screen."""
@@ -227,11 +236,12 @@ with tab_data:
 with tab_model:
     runs = b.query("SELECT * FROM runs WHERE created_at = (SELECT MAX(created_at) FROM runs)")
     best = runs[runs.chosen == 1].model_name.iloc[0]
-    st.markdown(f"Three classifiers compared on the **held-out test split**. Threshold tuned on dev. Chosen: **{best}**.")
+    st.markdown(f"Three classifiers compared on the **held-out test split**. The decision threshold and the chosen model (**{best}**) were both picked on the dev split.")
     level = st.radio("Level", ["sentence", "response"], horizontal=True,
                      help="Response level: an answer counts as hallucinated if any sentence is flagged.")
     r = runs[runs.level == level].set_index("model_name")[["accuracy", "precision", "recall", "f1", "roc_auc", "threshold"]]
-    st.dataframe(r.style.format("{:.3f}").highlight_max(axis=0, color="#bbf7d0"), width="stretch")
+    st.dataframe(r.style.format("{:.3f}").highlight_max(axis=0, color="#bbf7d0", subset=["accuracy", "precision", "recall", "f1", "roc_auc"]),
+                 width="stretch")
     st.bar_chart(r[["precision", "recall", "f1", "roc_auc"]].T, stack=False)
     st.markdown("**Features used** (computed per sentence against the context): " + ", ".join(f"`{f}`" for f in b.FEATURES))
 
