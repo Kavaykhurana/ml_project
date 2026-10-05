@@ -7,6 +7,7 @@ import hashlib
 import json
 import re
 import sqlite3
+import time
 import urllib.error
 import urllib.request
 from datetime import datetime
@@ -116,10 +117,18 @@ def norm(w):
     return w[:-1] if len(w) > 3 and w.endswith("s") else w
 
 
+ABBREV = {"st", "mr", "mrs", "ms", "dr", "jr", "sr", "prof", "mt", "ft", "no", "vs", "etc", "inc", "ltd", "co",
+          "corp", "e.g", "i.e", "u.s", "u.k", "jan", "feb", "mar", "apr", "aug", "sep", "sept", "oct", "nov", "dec"}
+
+
 def split_sentences(text):
     """Return [(start, end, sentence)] with character offsets into text."""
     out, start = [], 0
     for m in re.finditer(r"(?<=[.!?])\s+|\n+", text):
+        last = text[start:m.start()].rsplit(None, 1)[-1:] or [""]
+        word = last[0].rstrip(".").lower()
+        if "\n" not in m.group() and (word in ABBREV or (len(word) == 1 and word.isalpha())):
+            continue  # "St. Louis", "J. K. Rowling": not a sentence end
         if text[start:m.start()].strip():
             out.append((start, m.start(), text[start:m.start()]))
         start = m.end()
@@ -261,13 +270,19 @@ def detect(context, response, log=True):
 
 GEMINI_MODELS = ["gemini-3.5-flash-lite", "gemini-3.8-flash"]
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent"
+RETRYABLE = {429, 500, 503, 504}  # rate limit / overloaded: wait, retry, then try the other model
+PLAIN = "Write plain text only: no markdown, bullet points or headings."
 PROMPTS = {
+    # used when the user gives no passages: Gemini plays the retriever and writes the evidence
+    "retrieve": ("You are a search engine. Write a short factual reference passage (4-6 sentences) with concrete "
+                 "facts such as names, dates and numbers about the following topic or question:\n{q}\n" + PLAIN),
     "strict": ("Briefly answer the following question:\n{q}\n"
-               "Bear in mind that your response should be strictly based on the following passages:\n{c}"),
+               "Bear in mind that your response should be strictly based on the following passages:\n{c}\n" + PLAIN),
     # invites the model to go beyond the context, so the demo shows unsupported claims getting flagged
     "loose": ("Answer the following question in 3-5 sentences:\n{q}\n"
               "Here is some background:\n{c}\n"
-              "Also add interesting extra facts from your own knowledge (history, people, numbers) that are not in the background."),
+              "Also add interesting extra facts from your own knowledge (history, people, numbers) "
+              "that are not in the background.\n" + PLAIN),
 }
 
 
@@ -276,34 +291,89 @@ def build_context(question, passages):
     return f"Question: {question}\nPassages:\n{passages}"
 
 
-def gemini_answer(question, passages, api_key, model=GEMINI_MODELS[0], style="strict"):
-    """Ask Gemini to answer from the passages. Raises RuntimeError with a readable message on failure."""
-    body = {"contents": [{"parts": [{"text": PROMPTS[style].format(q=question, c=passages)}]}],
-            "generationConfig": {"temperature": 0.7}}
+def _call_gemini(prompt, api_key, model):
+    body = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": 0.7}}
     req = urllib.request.Request(GEMINI_URL.format(model), data=json.dumps(body).encode(),
                                  headers={"Content-Type": "application/json", "x-goog-api-key": api_key})
+    with urllib.request.urlopen(req, timeout=60) as r:
+        data = json.load(r)
+    if data.get("promptFeedback", {}).get("blockReason"):
+        raise RuntimeError(f"Gemini blocked this prompt ({data['promptFeedback']['blockReason']}). Try different text.")
+    parts = (data.get("candidates") or [{}])[0].get("content", {}).get("parts", [])
+    text = "".join(p.get("text", "") for p in parts if not p.get("thought")).strip()
+    if not text:
+        raise RuntimeError(f"Gemini returned an empty answer: {json.dumps(data)[:300]}")
+    return text
+
+
+def _http_message(e):
     try:
-        with urllib.request.urlopen(req, timeout=60) as r:
-            data = json.load(r)
-    except urllib.error.HTTPError as e:
-        try:
-            msg = json.load(e)["error"]["message"]
-        except Exception:
-            msg = e.reason
-        raise RuntimeError(f"Gemini error {e.code}: {msg}") from None
-    except urllib.error.URLError as e:
-        raise RuntimeError(f"Could not reach Gemini: {e.reason}") from None
-    try:
-        return "".join(p.get("text", "") for p in data["candidates"][0]["content"]["parts"]).strip()
-    except (KeyError, IndexError):
-        raise RuntimeError(f"Gemini returned no answer: {json.dumps(data)[:300]}") from None
+        return json.load(e)["error"]["message"]
+    except Exception:
+        return e.reason
+
+
+def gemini_generate(prompt, api_key, model=GEMINI_MODELS[0]):
+    """Call Gemini, retrying busy/rate-limited errors and falling back to the other model.
+    Returns (text, model_used). Raises RuntimeError with a readable message."""
+    last = ""
+    for m in [model] + [x for x in GEMINI_MODELS if x != model]:
+        for attempt in range(2):
+            try:
+                return _call_gemini(prompt, api_key, m), m
+            except urllib.error.HTTPError as e:
+                last = f"Gemini error {e.code} on {m}: {_http_message(e)}"
+                if e.code == 404:  # model retired or not available to this key: try the next one
+                    break
+                if e.code not in RETRYABLE:  # e.g. 400 invalid key: retrying will not help
+                    raise RuntimeError(last) from None
+                time.sleep(2 * (attempt + 1))
+            except urllib.error.URLError as e:
+                raise RuntimeError(f"Could not reach Gemini (check your internet): {e.reason}") from None
+    raise RuntimeError(last + " | All Gemini models are busy right now, try again in a minute.")
+
+
+def gemini_passages(question, api_key, model=GEMINI_MODELS[0]):
+    """Simulated retrieval: Gemini writes the evidence passage for a question. Returns (text, model_used)."""
+    return gemini_generate(PROMPTS["retrieve"].format(q=question), api_key, model)
+
+
+def gemini_answer(question, passages, api_key, model=GEMINI_MODELS[0], style="strict"):
+    """Gemini answers the question from the passages. Returns (text, model_used)."""
+    return gemini_generate(PROMPTS[style].format(q=question, c=passages), api_key, model)
+
 
 if __name__ == "__main__":
     # self-check on pure functions (no data needed)
     assert [t for _, _, t in split_sentences("Hi there. Second one! Third")] == ["Hi there.", "Second one!", "Third"]
+    assert [t for _, _, t in split_sentences("Fair in St. Louis by J. K. Rowling. Next")] == ["Fair in St. Louis by J. K. Rowling.", "Next"]
     idx = context_index("The shop is at 826 B Street, Hayward.")
     assert novel_words("The shop is at 999 Oak Street.", idx) == ["999", "Oak"]
     f = dict(zip(FEATURES, sentence_features("The shop is at 999 Oak Street.", idx, 0, 1)))
     assert f["novel_numbers"] == 1 and f["novel_capitals"] == 1
     assert WORD.findall("tall.and 94.9 o'clock") == ["tall", "and", "94.9", "o'clock"]
+
+    # Gemini retry/fallback logic, with the network call faked
+    def fake_http(code):
+        return urllib.error.HTTPError("u", code, "err", {}, None)
+    calls, time.sleep = [], lambda s: None
+
+    def fake_call(prompt, key, model):
+        calls.append(model)
+        if model == GEMINI_MODELS[1]:
+            raise fake_http(503)  # chosen model overloaded
+        return "ok"
+    _call_gemini = fake_call
+    assert gemini_generate("p", "k", GEMINI_MODELS[1]) == ("ok", GEMINI_MODELS[0])
+    assert calls == [GEMINI_MODELS[1], GEMINI_MODELS[1], GEMINI_MODELS[0]]  # 2 tries, then fallback
+
+    def bad_key(prompt, key, model):
+        calls.append(model)
+        raise fake_http(400)
+    calls.clear(); _call_gemini = bad_key
+    try:
+        gemini_generate("p", "k")
+        raise AssertionError("expected RuntimeError")
+    except RuntimeError as e:
+        assert "400" in str(e) and len(calls) == 1  # no pointless retries on a bad key
     print("backend self-check ok")

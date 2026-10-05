@@ -141,38 +141,52 @@ with tab_detect:
             run_detection(row.context, row.response)
         show_result(row.context, row.response, json.loads(row.labels))
     elif mode == "Ask Gemini":
-        st.markdown("**Gemini writes the answer** from your question and passages, then **the trained model checks it** "
-                    "against those passages. Choose *Add outside facts* to push Gemini beyond the passages "
+        st.markdown("Ask Gemini anything. **Gemini writes the answer**, then **the trained model checks it** against the "
+                    "passages. Paste your own passages, or leave them empty and Gemini first writes them "
+                    "(like a search engine would). Pick *Add outside facts* to push Gemini beyond the passages "
                     "and watch those sentences get flagged.")
         st.button("Load example", icon=":material/lightbulb:", on_click=load_gemini_example)
-        with st.form("gemini"):
+        with st.form("gemini", enter_to_submit=False):
             api_key = gemini_key() or st.text_input(
                 "Gemini API key", type="password",
                 help="Free key from https://aistudio.google.com/apikey. Only sent to Google for this request, never saved.")
             c1, c2 = st.columns(2)
-            model = c1.selectbox("Gemini model", b.GEMINI_MODELS)
+            model = c1.selectbox("Gemini model", b.GEMINI_MODELS,
+                                 help="If this model is busy, the app automatically retries and switches to the other one.")
             style = c2.segmented_control("Answer style", ["Strictly from passages", "Add outside facts"],
                                          default="Strictly from passages")
             question = st.text_input("Question", key="g_q", placeholder="e.g. Tell me about the Eiffel Tower.")
-            passages = st.text_area("Passages (retrieved evidence)", key="g_ctx", height=160,
-                                    placeholder="e.g. The Eiffel Tower is in Paris. It was completed in 1889 and is 330 metres tall.")
+            passages = st.text_area("Passages (optional)", key="g_ctx", height=160,
+                                    placeholder="Leave empty and Gemini will write the passages first. "
+                                                "Or paste your own, e.g. The Eiffel Tower is in Paris. It was completed in 1889.")
             go = st.form_submit_button("Generate answer and check it", type="primary", icon=":material/auto_awesome:")
         if go:
-            if not (api_key and question.strip() and passages.strip()):
-                st.warning("Fill in the API key, the question and the passages.")
+            if not api_key:
+                st.warning("No Gemini API key found. Paste one above, or put it in .streamlit/secrets.toml.")
+            elif not question.strip():
+                st.warning("Type a question first.")
             else:
-                with st.spinner("Gemini is writing the answer..."):
-                    try:
-                        answer = b.gemini_answer(question, passages, api_key, model,
-                                                 "loose" if style == "Add outside facts" else "strict")
-                    except RuntimeError as e:
-                        st.error(str(e))
-                    else:
-                        st.session_state.g_answer = (b.build_context(question, passages), answer)
-                        run_detection(*st.session_state.g_answer)
-        if "g_answer" in st.session_state:
-            st.caption("Gemini's answer, checked sentence by sentence:")
-            show_result(*st.session_state.g_answer)
+                try:
+                    generated = not passages.strip()
+                    if generated:
+                        with st.spinner("No passages given, so Gemini is writing them first..."):
+                            passages, model = b.gemini_passages(question, api_key, model)
+                    with st.spinner("Gemini is writing the answer..."):
+                        answer, used = b.gemini_answer(question, passages, api_key, model,
+                                                       "loose" if style == "Add outside facts" else "strict")
+                except RuntimeError as e:
+                    st.error(str(e), icon=":material/error:")
+                else:
+                    st.session_state.g_answer = {"context": b.build_context(question, passages), "answer": answer,
+                                                 "passages": passages, "generated": generated, "model": used}
+                    run_detection(st.session_state.g_answer["context"], answer)
+        g = st.session_state.get("g_answer")
+        if g:
+            with st.expander("Passages the answer was checked against" + (" (written by Gemini)" if g["generated"] else ""),
+                             expanded=g["generated"]):
+                st.text(g["passages"])
+            st.caption(f"Answer by {g['model']}, checked sentence by sentence:")
+            show_result(g["context"], g["answer"])
     else:
         st.markdown("Type any **context** (the facts the LLM was given) and any **response** (the LLM's answer), "
                     "then click **Detect**. Need a quick start? Load a demo scenario and edit it.")

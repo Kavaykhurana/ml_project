@@ -78,11 +78,11 @@ detect(context, response) → per-sentence probability, flagged sentences, risk 
 
 | Model | Sentence F1 | Sentence AUC | Response F1 | Response AUC |
 |---|---|---|---|---|
-| Logistic Regression | 0.300 | 0.770 | 0.646 | 0.782 |
-| Random Forest | 0.337 | 0.784 | 0.652 | 0.795 |
-| **Gradient Boosting** (chosen) | 0.331 | **0.796** | 0.651 | **0.802** |
+| Logistic Regression | 0.301 | 0.771 | 0.644 | 0.781 |
+| Random Forest | 0.332 | 0.786 | 0.647 | 0.796 |
+| **Gradient Boosting** (chosen) | **0.338** | **0.797** | **0.655** | 0.800 |
 
-The model is picked by F1 on the **dev** split, and its threshold is tuned there too. The test split is only used for reporting, so it never influences any choice. Gradient Boosting had the best dev F1 (0.387).
+The model is picked by F1 on the **dev** split, and its threshold is tuned there too. The test split is only used for reporting, so it never influences any choice. Gradient Boosting had the best dev F1 (0.392).
 
 *Response level* means an answer counts as hallucinated if any of its sentences is flagged. Sentence-level F1 is low because only 8% of test sentences are hallucinated and the features are lexical. Response-level detection, the "should I trust this answer?" question, is the practical use.
 
@@ -99,7 +99,7 @@ The model is picked by F1 on the **dev** split, and its threshold is tuned there
 
 - **Detector** has 3 input modes:
   - **Write my own** (default): type any context and any response, then click Detect. Four demo scenarios (invented fact, wrong numbers, fully grounded, made-up news claim) fill the boxes so you can start from one and edit it. **Clear** empties both boxes.
-  - **Ask Gemini**: type a question and passages. Gemini writes the answer and the detector checks it against the passages. *Strictly from passages* usually comes out grounded. *Add outside facts* asks Gemini to add facts from its own knowledge, and those sentences get flagged. The default model is `gemini-3.5-flash-lite`, and `gemini-3.8-flash` is selectable.
+  - **Ask Gemini**: type a question. Passages are optional: leave them empty and Gemini first writes the reference passages (simulated retrieval), then answers. The detector checks the answer against the passages. *Strictly from passages* usually comes out grounded. *Add outside facts* asks Gemini to add facts from its own knowledge, and those sentences get flagged. The default model is `gemini-3.5-flash-lite`, and `gemini-3.8-flash` is selectable. Busy or rate-limited models (429/503) are retried, then the app switches to the other model automatically.
   - **RAGTruth test example**: browse real test answers and compare the prediction with the human gold labels.
 - **Dataset**: stats and charts queried live from SQLite, plus a table browser.
 - **Model Performance**: all 3 models compared at sentence and response level.
@@ -110,7 +110,7 @@ The model is picked by F1 on the **dev** split, and its threshold is tuned there
 1. **Run All** in the notebook. Walk through the EDA charts, the feature table (hallucinated sentences have more novel words and less n-gram overlap) and the model comparison.
 2. In the app, **Write my own** → load **Invented fact** → Detect. The second sentence is red and "Leonardo da Vinci" is underlined because it isn't in the context.
 3. Load **Fully grounded** → Detect. It comes out "Looks grounded".
-4. **Ask Gemini** → Load example → *Strictly from passages* → it's grounded. Switch to *Add outside facts* → the extra facts get flagged.
+4. **Ask Gemini** → type any question, leave passages empty → *Strictly from passages* → it's grounded. Switch to *Add outside facts* → the extra facts get flagged.
 5. Let the teacher type their own: a short paragraph of facts as context, and an answer that repeats some facts and adds one new name, number or claim.
 6. **RAGTruth test example** → compare the model's red sentences with the yellow human labels.
 7. **Model Performance** and **History** tabs: metrics and every detection you ran, read from SQLite.
