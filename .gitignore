@@ -1,0 +1,6 @@
+data/
+ragtruth.db
+model.joblib
+__pycache__/
+.ipynb_checkpoints/
+.claude/
