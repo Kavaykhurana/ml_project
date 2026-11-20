@@ -125,6 +125,8 @@ def norm(w):
     return w[:-1] if len(w) > 3 and w.endswith("s") else w
 
 
+STOPWORDS |= {norm(w) for w in STOPWORDS}  # words are compared after norm(), so "this" -> "thi" must still be a stopword
+
 ABBREV = {"st", "mr", "mrs", "ms", "dr", "jr", "sr", "prof", "mt", "ft", "no", "vs", "etc", "inc", "ltd", "co",
           "corp", "e.g", "i.e", "u.s", "u.k", "jan", "feb", "mar", "apr", "aug", "sep", "sept", "oct", "nov", "dec"}
 
@@ -132,9 +134,12 @@ ABBREV = {"st", "mr", "mrs", "ms", "dr", "jr", "sr", "prof", "mt", "ft", "no", "
 def split_sentences(text):
     """Return [(start, end, sentence)] with character offsets into text."""
     out, start = [], 0
-    for m in re.finditer(r"(?<=[.!?])\s+|\n+", text):
+    # a sentence ends at . ! ? optionally followed by a closing quote or bracket: He said "Hi." Then...
+    for m in re.finditer(r"(?:(?<=[.!?])|(?<=[.!?][\"'”’)\]]))\s+|\n+", text):
         last = text[start:m.start()].rsplit(None, 1)[-1:] or [""]
         word = last[0].rstrip(".").lower()
+        if word == "no" and not text[m.end():m.end() + 1].isdigit():
+            word = ""  # "No. 5" is an abbreviation, "the answer is no." ends a sentence
         if "\n" not in m.group() and (word in ABBREV or (len(word) == 1 and word.isalpha())):
             continue  # "St. Louis", "J. K. Rowling": not a sentence end
         if text[start:m.start()].strip():
@@ -334,6 +339,7 @@ def gemini_generate(prompt, api_key, model=GEMINI_MODELS[0]):
             except urllib.error.HTTPError as e:
                 last = f"Gemini error {e.code} on {m}: {_http_message(e)}"
                 if e.code == 404:  # model retired or not available to this key: try the next one
+                    last += " (model not available to this key)"
                     break
                 if e.code not in RETRYABLE:  # e.g. 400 invalid key: retrying will not help
                     raise RuntimeError(last) from None
@@ -342,7 +348,7 @@ def gemini_generate(prompt, api_key, model=GEMINI_MODELS[0]):
                 last = f"Gemini timed out on {m}"
             except urllib.error.URLError as e:
                 raise RuntimeError(f"Could not reach Gemini (check your internet): {e.reason}") from None
-    raise RuntimeError(last + " | All Gemini models are busy right now, try again in a minute.")
+    raise RuntimeError(last + " | No Gemini model answered. Try again in a minute or pick the other model.")
 
 
 def gemini_passages(question, api_key, model=GEMINI_MODELS[0]):
@@ -364,6 +370,9 @@ if __name__ == "__main__":
     f = dict(zip(FEATURES, sentence_features("The shop is at 999 Oak Street.", idx, 0, 1)))
     assert f["novel_numbers"] == 1 and f["novel_capitals"] == 1
     assert WORD.findall("tall.and 94.9 o'clock") == ["tall", "and", "94.9", "o'clock"]
+    assert novel_words("This does matter.", context_index("Paris.")) == ["matter"]  # stopwords survive norm()
+    assert [t for _, _, t in split_sentences('He said "Hi." Then left.')] == ['He said "Hi."', "Then left."]
+    assert len(split_sentences("The answer is no. It is fine. See No. 5 here.")) == 3
 
     # Gemini retry/fallback logic, with the network call faked
     def fake_http(code):

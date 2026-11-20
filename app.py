@@ -53,8 +53,8 @@ st.title("🔎 RAG Hallucination Detector")
 st.caption("Trained on RAGTruth (ParticleMedia). Paste the retrieved context and the LLM answer. "
            "The model flags the sentences the context does not support.")
 
-if not b.MODEL_PATH.exists():
-    st.error("No trained model found. Run the notebook first.")
+if not b.MODEL_PATH.exists() or not b.DB_PATH.exists():
+    st.error("No trained model or database found. Run the notebook first.")
     st.stop()
 
 tab_detect, tab_data, tab_model, tab_history = st.tabs(["Detector", "Dataset", "Model Performance", "History"])

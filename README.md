@@ -79,11 +79,11 @@ detect(context, response) → per-sentence probability, flagged sentences, risk 
 
 | Model | Sentence F1 | Sentence AUC | Response F1 | Response AUC |
 |---|---|---|---|---|
-| Logistic Regression | 0.301 | 0.771 | 0.644 | 0.781 |
-| Random Forest | 0.332 | 0.786 | 0.647 | 0.796 |
-| **Gradient Boosting** (chosen) | **0.338** | **0.797** | **0.655** | 0.800 |
+| Logistic Regression | 0.299 | 0.770 | 0.646 | 0.780 |
+| Random Forest | 0.335 | 0.786 | 0.651 | 0.796 |
+| **Gradient Boosting** (chosen) | **0.338** | **0.798** | **0.664** | **0.800** |
 
-The model is picked by F1 on the **dev** split, and its threshold is tuned there too. The test split is only used for reporting, so it never influences any choice. Gradient Boosting had the best dev F1 (0.392).
+The model is picked by F1 on the **dev** split, and its threshold is tuned there too. The test split is only used for reporting, so it never influences any choice. Gradient Boosting had the best dev F1 (0.384).
 
 *Response level* means an answer counts as hallucinated if any of its sentences is flagged. Sentence-level F1 is low because only 8% of test sentences are hallucinated and the features are lexical. Response-level detection, the "should I trust this answer?" question, is the practical use.
 
@@ -137,7 +137,7 @@ python test_app.py    # 7 end-to-end UI tests (needs the notebook to have run on
 
 ## Limitations
 
-Response-level F1 on the test set differs a lot by task type: Data2txt 0.78, QA 0.53, Summary 0.39. On Data2txt the model flags almost everything (recall 0.98, precision 0.65). The context there is JSON, so any reworded field looks like new words.
+Response-level F1 on the test set differs a lot by task type: Data2txt 0.78, QA 0.55, Summary 0.38. On Data2txt the model flags almost everything (recall 0.97, precision 0.65). The context there is JSON, so any reworded field looks like new words.
 
 
 The features are lexical. A correct paraphrase can look "novel", and a contradiction that reuses context words (for example, swapped numbers) can look grounded. Next steps would be a transformer token classifier (ModernBERT or DeBERTa on `[context] [SEP] [response]`) for word-level spans, or an NLI entailment score added as a feature.
