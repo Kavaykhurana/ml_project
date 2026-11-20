@@ -42,6 +42,7 @@ To stop the app, interrupt the last cell (■ button). Everything runs locally e
 | `.streamlit/config.toml` | Light theme, binds to localhost only |
 | `requirements.txt` | Dependencies |
 | `test_app.py` | End-to-end UI tests |
+| `docs/` | Project report (docx/pdf), 12-slide presentation, knowledge guide, slide-wise speech, figures and screenshots (`docs/make_figures.py`, `docs/make_diagrams.py` regenerate the charts) |
 
 Generated at runtime (git-ignored): `data/` (raw jsonl), `ragtruth.db`, `model.joblib`.
 
