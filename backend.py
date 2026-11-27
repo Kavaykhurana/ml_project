@@ -275,7 +275,6 @@ def detect(context, response, log=True):
     return {"score": score, "verdict": verdict, "sentences": out, "model": bundle["name"], "threshold": bundle["threshold"]}
 
 
-
 # ---------- Gemini (generates the answer that the detector then checks) ----------
 
 GEMINI_MODELS = ["gemini-3.5-flash-lite", "gemini-3.8-flash"]

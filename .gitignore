@@ -9,3 +9,4 @@ __pycache__/
 streamlit.log
 .agents/
 *.zip
+.idea/
